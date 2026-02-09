@@ -176,19 +176,187 @@ function isPathClear(from: Position5D, to: Position5D, board: Board): boolean {
   return true;
 }
 
-/** 检查是否为合法的时间旅行（占位，Week 5-6 实现） */
+/**
+ * 检查是否为合法的时间旅行移动
+ * 5D Chess中棋子可以跨时间线和回合移动：
+ * - 车：可沿单一轴移动（包括时间轴和时间线轴）
+ * - 象：可在任意两个轴的对角线上移动
+ * - 后：车 + 象
+ * - 马：L型跳跃可跨时间维度
+ * - 国王：任意方向一步（包括时间维度）
+ * - 兵：可沿时间轴前进一步
+ */
 export function isValidTimeTravel(
-  _piece: Piece,
-  _to: Position5D,
-  _gameState: GameState,
+  piece: Piece,
+  to: Position5D,
+  gameState: GameState,
 ): boolean {
-  // TODO: 实现时间旅行验证
+  const from = piece.position;
+
+  // 不能移动到同一位置
+  if (
+    from.x === to.x &&
+    from.y === to.y &&
+    from.timeline === to.timeline &&
+    from.turn === to.turn
+  )
+    return false;
+
+  // 纯空间移动不属于时间旅行
+  if (from.timeline === to.timeline && from.turn === to.turn) return false;
+
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const dt = to.turn - from.turn; // 时间轴差
+  const dl = to.timeline - from.timeline; // 时间线轴差
+
+  // 检查目标时间线和回合是否存在棋盘
+  const targetTimeline = gameState.timelines.get(to.timeline);
+  if (!targetTimeline) return false;
+  const targetBoard = targetTimeline.boards.get(to.turn);
+  if (!targetBoard) return false;
+
+  // 检查目标位置是否有友方棋子
+  const targetPiece = getPieceAt(targetBoard, to.x, to.y);
+  if (targetPiece && targetPiece.color === piece.color) return false;
+
+  switch (piece.type) {
+    case "rook":
+      return isValidTimeTravelRook(dx, dy, dt, dl);
+    case "bishop":
+      return isValidTimeTravelBishop(dx, dy, dt, dl);
+    case "queen":
+      return (
+        isValidTimeTravelRook(dx, dy, dt, dl) ||
+        isValidTimeTravelBishop(dx, dy, dt, dl)
+      );
+    case "knight":
+      return isValidTimeTravelKnight(dx, dy, dt, dl);
+    case "king":
+      return isValidTimeTravelKing(dx, dy, dt, dl);
+    case "pawn":
+      return isValidTimeTravelPawn(piece, dx, dy, dt, dl, targetBoard);
+    default:
+      return false;
+  }
+}
+
+/** 车的时间旅行：沿单一轴移动（4个轴中的1个，其余为0） */
+function isValidTimeTravelRook(
+  dx: number,
+  dy: number,
+  dt: number,
+  dl: number,
+): boolean {
+  const axes = [dx, dy, dt, dl];
+  const nonZero = axes.filter((v) => v !== 0).length;
+  return nonZero === 1;
+}
+
+/** 象的时间旅行：在任意两个轴的对角线移动（绝对值相等） */
+function isValidTimeTravelBishop(
+  dx: number,
+  dy: number,
+  dt: number,
+  dl: number,
+): boolean {
+  const axes = [Math.abs(dx), Math.abs(dy), Math.abs(dt), Math.abs(dl)];
+  const nonZero = axes.filter((v) => v !== 0);
+  if (nonZero.length !== 2) return false;
+  return nonZero[0] === nonZero[1];
+}
+
+/** 马的时间旅行：任意两个轴上的L型跳跃 */
+function isValidTimeTravelKnight(
+  dx: number,
+  dy: number,
+  dt: number,
+  dl: number,
+): boolean {
+  const axes = [Math.abs(dx), Math.abs(dy), Math.abs(dt), Math.abs(dl)];
+  const nonZero = axes.filter((v) => v !== 0);
+  if (nonZero.length !== 2) return false;
+  const sorted = nonZero.sort((a, b) => a - b);
+  return sorted[0] === 1 && sorted[1] === 2;
+}
+
+/** 国王的时间旅行：任意方向最多一步 */
+function isValidTimeTravelKing(
+  dx: number,
+  dy: number,
+  dt: number,
+  dl: number,
+): boolean {
+  return (
+    Math.abs(dx) <= 1 &&
+    Math.abs(dy) <= 1 &&
+    Math.abs(dt) <= 1 &&
+    Math.abs(dl) <= 1 &&
+    (dx !== 0 || dy !== 0 || dt !== 0 || dl !== 0)
+  );
+}
+
+/** 兵的时间旅行：可沿时间轴或时间线轴前进一步（不改变空间坐标或仅对角） */
+function isValidTimeTravelPawn(
+  piece: Piece,
+  dx: number,
+  dy: number,
+  dt: number,
+  dl: number,
+  targetBoard: Board,
+): boolean {
+  // 兵只能沿时间线轴移动1步，不改变空间坐标
+  if (dx === 0 && dy === 0) {
+    const timeStep = Math.abs(dt) + Math.abs(dl);
+    if (timeStep !== 1) return false;
+    // 不能移动到有棋子的位置
+    const target = getPieceAt(targetBoard, piece.position.x, piece.position.y);
+    return !target;
+  }
+
+  // 兵可以斜向吃子（空间+时间维度各1步）
+  if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) {
+    const timeStep = Math.abs(dt) + Math.abs(dl);
+    if (timeStep !== 1) return false;
+    const target = getPieceAt(targetBoard, piece.position.x + dx, piece.position.y + dy);
+    return !!target && target.color !== piece.color;
+  }
+
   return false;
 }
 
-/** 获取棋子所有合法移动位置（含将军过滤） */
-export function getLegalMoves(piece: Piece, board: Board): Position5D[] {
+/** 获取棋子所有时间旅行合法移动位置 */
+export function getTimeTravelMoves(
+  piece: Piece,
+  gameState: GameState,
+): Position5D[] {
   const moves: Position5D[] = [];
+
+  for (const [tlId, timeline] of gameState.timelines) {
+    for (const [turn] of timeline.boards) {
+      // 跳过当前时空（那是空间移动）
+      if (tlId === piece.position.timeline && turn === piece.position.turn)
+        continue;
+
+      for (let x = 0; x < 8; x++) {
+        for (let y = 0; y < 8; y++) {
+          const to: Position5D = { x, y, timeline: tlId, turn };
+          if (isValidTimeTravel(piece, to, gameState)) {
+            moves.push(to);
+          }
+        }
+      }
+    }
+  }
+
+  return moves;
+}
+
+/** 获取棋子所有合法移动位置（含将军过滤） */
+export function getLegalMoves(piece: Piece, board: Board, gameState?: GameState): Position5D[] {
+  const moves: Position5D[] = [];
+
+  // 空间移动
   for (let x = 0; x < 8; x++) {
     for (let y = 0; y < 8; y++) {
       const to: Position5D = {
@@ -204,5 +372,12 @@ export function getLegalMoves(piece: Piece, board: Board): Position5D[] {
       }
     }
   }
+
+  // 时间旅行移动（需要 gameState 参数）
+  if (gameState) {
+    const timeMoves = getTimeTravelMoves(piece, gameState);
+    moves.push(...timeMoves);
+  }
+
   return moves;
 }

@@ -41,7 +41,20 @@ export function ChessBoard() {
     : null;
 
   const isLegalTarget = (x: number, y: number) =>
-    legalMoves.some((m) => m.x === x && m.y === y);
+    legalMoves.some(
+      (m) =>
+        m.x === x &&
+        m.y === y &&
+        m.timeline === gameState.currentTimeline &&
+        m.turn === gameState.currentTurn,
+    );
+
+  // 计算时间旅行合法移动数量
+  const timeTravelMoveCount = legalMoves.filter(
+    (m) =>
+      m.timeline !== gameState.currentTimeline ||
+      m.turn !== gameState.currentTurn,
+  ).length;
 
   const handleSquareClick = (x: number, y: number) => {
     if (pendingPromotion) return;
@@ -168,6 +181,23 @@ export function ChessBoard() {
           {gameState.currentTurn}
         </span>
       </div>
+
+      {/* 时间旅行提示 */}
+      {selectedPiece && timeTravelMoveCount > 0 && (
+        <div
+          className="mt-1 text-center text-purple-400 text-xs animate-pulse"
+          data-testid="time-travel-hint"
+        >
+          ⏳ 可进行 {timeTravelMoveCount} 个时间旅行移动
+        </div>
+      )}
+
+      {/* 时间线数量指示 */}
+      {gameState.timelines.size > 1 && (
+        <div className="mt-1 text-center text-xs text-slate-500" data-testid="timeline-count">
+          🌌 {gameState.timelines.size} 条平行时间线
+        </div>
+      )}
 
       {/* 升变选择 */}
       {pendingPromotion && (

@@ -84,64 +84,108 @@ export function isKingInCheckAfterMove(
   return isKingInCheck(piece.color, simulatedBoard);
 }
 
-/** 检查是否将死 */
+/** 检查是否将死（检查所有活跃时间线） */
 export function isCheckmate(
   color: PieceColor,
   gameState: GameState,
 ): boolean {
-  const timeline = gameState.timelines.get(gameState.currentTimeline);
-  if (!timeline) return false;
-  const board = timeline.boards.get(gameState.currentTurn);
-  if (!board) return false;
+  // 在5D Chess中，需要在所有活跃时间线的最新棋盘上检查
+  // 简化规则：只要在当前活跃时间线上将死即算将死
+  for (const [, timeline] of gameState.timelines) {
+    if (!timeline.isActive) continue;
 
-  if (!isKingInCheck(color, board)) return false;
+    // 获取该时间线最新的棋盘
+    let latestTurn = -1;
+    for (const turn of timeline.boards.keys()) {
+      if (turn > latestTurn) latestTurn = turn;
+    }
+    const board = timeline.boards.get(latestTurn);
+    if (!board) continue;
 
-  const pieces = getPiecesByColor(board, color);
-  return pieces.every(
-    (piece: Piece) => getLegalMoves(piece, board).length === 0,
-  );
-}
-
-/** 检查是否僵局 */
-export function isStalemate(gameState: GameState): boolean {
-  const timeline = gameState.timelines.get(gameState.currentTimeline);
-  if (!timeline) return false;
-  const board = timeline.boards.get(gameState.currentTurn);
-  if (!board) return false;
-
-  const color = gameState.currentPlayer;
-  if (isKingInCheck(color, board)) return false;
-
-  const pieces = getPiecesByColor(board, color);
-  return pieces.every(
-    (piece: Piece) => getLegalMoves(piece, board).length === 0,
-  );
-}
-
-/** 检查是否和棋（材料不足） */
-export function isDraw(gameState: GameState): boolean {
-  const timeline = gameState.timelines.get(gameState.currentTimeline);
-  if (!timeline) return false;
-  const board = timeline.boards.get(gameState.currentTurn);
-  if (!board) return false;
-
-  const whitePieces = getPiecesByColor(board, "white");
-  const blackPieces = getPiecesByColor(board, "black");
-
-  // K vs K
-  if (whitePieces.length === 1 && blackPieces.length === 1) return true;
-
-  // K+B vs K 或 K+N vs K
-  if (whitePieces.length === 1 && blackPieces.length === 2) {
-    return blackPieces.some(
-      (p: Piece) => p.type === "bishop" || p.type === "knight",
+    // 检查该棋盘上是否有被将死的国王
+    const king = board.pieces.find(
+      (p: Piece) => p.type === "king" && p.color === color,
     );
-  }
-  if (whitePieces.length === 2 && blackPieces.length === 1) {
-    return whitePieces.some(
-      (p: Piece) => p.type === "bishop" || p.type === "knight",
+    if (!king) continue;
+
+    if (!isKingInCheck(color, board)) continue;
+
+    const pieces = getPiecesByColor(board, color);
+    const allTrapped = pieces.every(
+      (piece: Piece) => getLegalMoves(piece, board).length === 0,
     );
+    if (allTrapped) return true;
   }
 
   return false;
+}
+
+/** 检查是否僵局（检查所有活跃时间线） */
+export function isStalemate(gameState: GameState): boolean {
+  const color = gameState.currentPlayer;
+
+  for (const [, timeline] of gameState.timelines) {
+    if (!timeline.isActive) continue;
+
+    let latestTurn = -1;
+    for (const turn of timeline.boards.keys()) {
+      if (turn > latestTurn) latestTurn = turn;
+    }
+    const board = timeline.boards.get(latestTurn);
+    if (!board) continue;
+
+    const king = board.pieces.find(
+      (p: Piece) => p.type === "king" && p.color === color,
+    );
+    if (!king) continue;
+
+    if (isKingInCheck(color, board)) continue;
+
+    const pieces = getPiecesByColor(board, color);
+    const noMoves = pieces.every(
+      (piece: Piece) => getLegalMoves(piece, board).length === 0,
+    );
+    if (noMoves) return true;
+  }
+
+  return false;
+}
+
+/** 检查是否和棋（材料不足，检查所有活跃时间线） */
+export function isDraw(gameState: GameState): boolean {
+  for (const [, timeline] of gameState.timelines) {
+    if (!timeline.isActive) continue;
+
+    let latestTurn = -1;
+    for (const turn of timeline.boards.keys()) {
+      if (turn > latestTurn) latestTurn = turn;
+    }
+    const board = timeline.boards.get(latestTurn);
+    if (!board) continue;
+
+    const whitePieces = getPiecesByColor(board, "white");
+    const blackPieces = getPiecesByColor(board, "black");
+
+    // 只有当所有活跃时间线都材料不足时才算和棋
+    const hasEnoughMaterial = (() => {
+      // K vs K
+      if (whitePieces.length === 1 && blackPieces.length === 1) return false;
+      // K+B vs K 或 K+N vs K
+      if (whitePieces.length === 1 && blackPieces.length === 2) {
+        return !blackPieces.some(
+          (p: Piece) => p.type === "bishop" || p.type === "knight",
+        );
+      }
+      if (whitePieces.length === 2 && blackPieces.length === 1) {
+        return !whitePieces.some(
+          (p: Piece) => p.type === "bishop" || p.type === "knight",
+        );
+      }
+      return true;
+    })();
+
+    if (hasEnoughMaterial) return false;
+  }
+
+  return true;
 }

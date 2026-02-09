@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { GameMenu } from "./components/UI/GameMenu";
 import { ChessBoard } from "./components/Board/ChessBoard";
+import { TimelineView } from "./components/Board/TimelineView";
 import { PlayerInfo } from "./components/UI/PlayerInfo";
 import { MoveHistory } from "./components/UI/MoveHistory";
 import { useGameStore } from "./store/gameStore";
@@ -63,9 +64,13 @@ function GameView({ onBack }: { onBack: () => void }) {
           <PlayerInfo />
         </aside>
 
-        {/* 中间：棋盘 */}
-        <main className="flex-1 flex items-center justify-center p-4">
+        {/* 中间：棋盘 + 时间线视图 */}
+        <main className="flex-1 flex flex-col items-center justify-center p-4 overflow-auto">
           <ChessBoard />
+          {/* 时间线视图（多时间线时显示） */}
+          <div className="mt-4 w-full max-w-4xl">
+            <TimelineView />
+          </div>
         </main>
 
         {/* 右侧：移动历史 */}
