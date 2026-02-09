@@ -1,0 +1,129 @@
+import { useGameStore } from "../../store/gameStore";
+import { PIECE_SYMBOLS } from "../../game/engine/GameState";
+import type { Piece, Position5D } from "../../types/game.types";
+
+export function ChessBoard() {
+  const gameState = useGameStore((s) => s.gameState);
+  const selectedPiece = useGameStore((s) => s.selectedPiece);
+  const legalMoves = useGameStore((s) => s.legalMoves);
+  const selectPiece = useGameStore((s) => s.selectPiece);
+  const movePiece = useGameStore((s) => s.movePiece);
+  const clearSelection = useGameStore((s) => s.clearSelection);
+
+  const timeline = gameState.timelines.get(gameState.currentTimeline);
+  const board = timeline?.boards.get(gameState.currentTurn);
+
+  if (!board) return <div>棋盘加载失败</div>;
+
+  const isLegalTarget = (x: number, y: number) =>
+    legalMoves.some((m) => m.x === x && m.y === y);
+
+  const handleSquareClick = (x: number, y: number) => {
+    if (selectedPiece && isLegalTarget(x, y)) {
+      const to: Position5D = {
+        x,
+        y,
+        timeline: gameState.currentTimeline,
+        turn: gameState.currentTurn,
+      };
+      movePiece(to);
+    } else {
+      const piece = board.pieces.find(
+        (p: Piece) => p.position.x === x && p.position.y === y,
+      );
+      if (piece && piece.color === gameState.currentPlayer) {
+        selectPiece(x, y);
+      } else {
+        clearSelection();
+      }
+    }
+  };
+
+  // 渲染 8x8 棋盘（从白方视角: y=7 在上，y=0 在下）
+  const rows = [];
+  for (let y = 7; y >= 0; y--) {
+    const cells = [];
+    for (let x = 0; x < 8; x++) {
+      const isLight = (x + y) % 2 === 1;
+      const piece = board.pieces.find(
+        (p: Piece) => p.position.x === x && p.position.y === y,
+      );
+      const isSelected =
+        selectedPiece?.position.x === x && selectedPiece?.position.y === y;
+      const isLegal = isLegalTarget(x, y);
+      const hasPiece = !!piece;
+
+      let bgColor = isLight
+        ? "bg-[var(--board-light)]"
+        : "bg-[var(--board-dark)]";
+      if (isSelected) bgColor = "bg-[var(--board-highlight)]";
+
+      cells.push(
+        <div
+          key={`${x}-${y}`}
+          className={`relative w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 flex items-center justify-center cursor-pointer select-none ${bgColor} transition-colors`}
+          onClick={() => handleSquareClick(x, y)}
+          data-testid={`square-${x}-${y}`}
+        >
+          {/* 棋子 */}
+          {piece && (
+            <span
+              className={`text-2xl sm:text-3xl md:text-4xl drop-shadow-md ${piece.color === "white" ? "text-white" : "text-gray-900"}`}
+              data-testid={`piece-${piece.color}-${piece.type}`}
+            >
+              {PIECE_SYMBOLS[piece.type][piece.color]}
+            </span>
+          )}
+          {/* 合法移动提示 */}
+          {isLegal && !hasPiece && (
+            <div className="absolute w-3 h-3 rounded-full bg-[var(--success)] opacity-60" />
+          )}
+          {isLegal && hasPiece && (
+            <div className="absolute inset-0 border-3 border-[var(--danger)] rounded-sm opacity-70" />
+          )}
+        </div>,
+      );
+    }
+    rows.push(
+      <div key={y} className="flex">
+        {/* 行号 */}
+        <div className="w-6 flex items-center justify-center text-xs text-slate-500">
+          {y + 1}
+        </div>
+        {cells}
+      </div>,
+    );
+  }
+
+  return (
+    <div data-testid="chess-board" className="inline-block">
+      <div className="border-2 border-slate-600 rounded-lg overflow-hidden shadow-2xl">
+        {rows}
+        {/* 列标 */}
+        <div className="flex ml-6">
+          {["a", "b", "c", "d", "e", "f", "g", "h"].map((col) => (
+            <div
+              key={col}
+              className="w-12 sm:w-14 md:w-16 text-center text-xs text-slate-500"
+            >
+              {col}
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* 当前回合指示 */}
+      <div className="mt-3 text-center" data-testid="turn-indicator">
+        <span
+          className={`inline-block w-3 h-3 rounded-full mr-2 ${gameState.currentPlayer === "white" ? "bg-white" : "bg-gray-900 border border-slate-500"}`}
+        />
+        <span className="text-sm text-slate-300">
+          {gameState.currentPlayer === "white" ? "白方" : "黑方"}回合
+        </span>
+        <span className="text-sm text-slate-500 ml-3">
+          时间线 {gameState.currentTimeline} · 回合{" "}
+          {gameState.currentTurn}
+        </span>
+      </div>
+    </div>
+  );
+}

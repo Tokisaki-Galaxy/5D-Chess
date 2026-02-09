@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+:root {
+  --primary: #3b82f6;
+  --secondary: #8b5cf6;
+  --success: #10b981;
+  --danger: #ef4444;
+  --warning: #f59e0b;
+  --board-light: #f0d9b5;
+  --board-dark: #b58863;
+  --board-highlight: #baca44;
+  --board-check: #ff6b6b;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: #0f172a;
+  color: #e2e8f0;
+  font-family:
+    "Inter",
+    system-ui,
+    -apple-system,
+    sans-serif;
+}
+
+#root {
+  min-height: 100vh;
+}
