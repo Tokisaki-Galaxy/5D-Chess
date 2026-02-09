@@ -13,7 +13,7 @@ import {
   getPieceAt,
   type GameState,
 } from "../game/engine/GameState";
-import { getLegalMoves, isPromotionMove } from "../game/engine/MoveValidator";
+import { getLegalMoves, isPromotionMove, isValidTimeTravel } from "../game/engine/MoveValidator";
 import {
   isKingInCheck,
   isCheckmate,
@@ -22,6 +22,11 @@ import {
 } from "../game/engine/WinCondition";
 import { getAIMove } from "../game/ai/ChessAI";
 import type { Position5D } from "../types/game.types";
+import {
+  createTimeline,
+  getNextTimelineId,
+  placePieceOnBoard,
+} from "../game/engine/TimelineManager";
 
 interface GameStore {
   // 游戏状态
@@ -43,6 +48,7 @@ interface GameStore {
   makeAIMove: () => void;
   clearSelection: () => void;
   resetGame: () => void;
+  navigateTimeline: (timelineId: number, turn: number) => void;
 }
 
 export const useGameStore = create<GameStore>((set, get) => ({
@@ -82,7 +88,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       return;
     }
 
-    const moves = getLegalMoves(piece, board);
+    const moves = getLegalMoves(piece, board, gameState);
     set({ selectedPiece: piece, legalMoves: moves });
   },
 
@@ -95,6 +101,18 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!timeline) return;
     const board = timeline.boards.get(gameState.currentTurn);
     if (!board) return;
+
+    // 检查是否是时间旅行移动
+    const isTimeTravelMove =
+      to.timeline !== gameState.currentTimeline ||
+      to.turn !== gameState.currentTurn;
+
+    if (isTimeTravelMove) {
+      // 验证时间旅行移动
+      if (!isValidTimeTravel(selectedPiece, to, gameState)) return;
+      executeTimeTravelMove(selectedPiece, to, board, timeline, gameState, set, get);
+      return;
+    }
 
     // 检查是否为升变
     if (isPromotionMove(selectedPiece, to.y)) {
@@ -159,6 +177,23 @@ export const useGameStore = create<GameStore>((set, get) => ({
       legalMoves: [],
       pendingPromotion: null,
       gameMessage: "",
+    });
+  },
+
+  navigateTimeline: (timelineId, turn) => {
+    const { gameState } = get();
+    const timeline = gameState.timelines.get(timelineId);
+    if (!timeline) return;
+    if (!timeline.boards.has(turn)) return;
+
+    set({
+      gameState: {
+        ...gameState,
+        currentTimeline: timelineId,
+        currentTurn: turn,
+      },
+      selectedPiece: null,
+      legalMoves: [],
     });
   },
 }));
@@ -267,6 +302,117 @@ function executeMove(
     gameMessage = "和棋！（材料不足）";
   } else if (isKingInCheck(nextPlayer, newBoard)) {
     gameMessage = "将军！";
+  }
+
+  newGameState.gameStatus = gameStatus;
+  newGameState.winner = winner;
+
+  set({
+    gameState: newGameState,
+    selectedPiece: null,
+    legalMoves: [],
+    gameMessage,
+  });
+
+  // AI自动走棋
+  if (
+    get().gameMode === "local-ai" &&
+    nextPlayer === "black" &&
+    gameStatus === "playing"
+  ) {
+    setTimeout(() => {
+      get().makeAIMove();
+    }, 400);
+  }
+}
+
+/** 执行时间旅行移动 */
+function executeTimeTravelMove(
+  piece: Piece,
+  to: Position5D,
+  sourceBoard: Board,
+  sourceTimeline: Timeline,
+  gameState: GameState,
+  set: (state: Partial<GameStore>) => void,
+  get: () => GameStore,
+) {
+  const targetTimeline = gameState.timelines.get(to.timeline);
+  if (!targetTimeline) return;
+  const targetBoard = targetTimeline.boards.get(to.turn);
+  if (!targetBoard) return;
+
+  const capturedPiece = getPieceAt(targetBoard, to.x, to.y) || undefined;
+
+  const move: Move = {
+    id: `move-${Date.now()}`,
+    piece,
+    from: piece.position,
+    to,
+    capturedPiece,
+    timestamp: Date.now(),
+    createsTimeline: undefined,
+  };
+
+  // 从源棋盘移除该棋子
+  const newSourcePieces = sourceBoard.pieces.filter(
+    (p: Piece) => p.id !== piece.id,
+  );
+  const newSourceBoard: Board = { ...sourceBoard, pieces: newSourcePieces, lastMove: move };
+
+  // 创建新时间线分支
+  const nextId = getNextTimelineId(gameState.timelines);
+  const newTargetBoard = placePieceOnBoard(
+    targetBoard,
+    piece,
+    to.x,
+    to.y,
+    nextId,
+    to.turn,
+  );
+  const newBranch = createTimeline(
+    to.timeline,
+    to.turn,
+    newTargetBoard,
+    nextId,
+  );
+
+  move.createsTimeline = nextId;
+
+  // 更新时间线
+  const newTimelines = new Map(gameState.timelines);
+  // 更新源时间线
+  const updatedSourceTimeline = {
+    ...sourceTimeline,
+    boards: new Map(sourceTimeline.boards).set(gameState.currentTurn, newSourceBoard),
+  };
+  newTimelines.set(gameState.currentTimeline, updatedSourceTimeline);
+  // 添加新分支时间线
+  newTimelines.set(nextId, newBranch);
+
+  const nextPlayer: PieceColor =
+    gameState.currentPlayer === "white" ? "black" : "white";
+
+  const newGameState: GameState = {
+    ...gameState,
+    timelines: newTimelines,
+    currentPlayer: nextPlayer,
+    moveHistory: [...gameState.moveHistory, move],
+  };
+
+  let gameMessage = `时间旅行！创建新时间线 ${nextId}`;
+  let gameStatus = gameState.gameStatus;
+  let winner = gameState.winner;
+
+  if (isCheckmate(nextPlayer, newGameState)) {
+    gameStatus = "checkmate";
+    winner = gameState.currentPlayer;
+    gameMessage = `将死！${winner === "white" ? "白方" : "黑方"}获胜！`;
+  } else if (isStalemate(newGameState)) {
+    gameStatus = "stalemate";
+    gameMessage = "和棋！（僵局）";
+  } else if (isDraw(newGameState)) {
+    gameStatus = "draw";
+    gameMessage = "和棋！（材料不足）";
   }
 
   newGameState.gameStatus = gameStatus;
