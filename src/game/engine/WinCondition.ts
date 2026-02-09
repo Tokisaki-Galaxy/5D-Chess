@@ -151,6 +151,29 @@ export function isStalemate(gameState: GameState): boolean {
   return false;
 }
 
+/** 检查是否材料不足（无法将死） */
+function hasInsufficientMaterial(board: Board): boolean {
+  const whitePieces = getPiecesByColor(board, "white");
+  const blackPieces = getPiecesByColor(board, "black");
+
+  // K vs K
+  if (whitePieces.length === 1 && blackPieces.length === 1) return true;
+
+  // K+B vs K 或 K+N vs K
+  if (whitePieces.length === 1 && blackPieces.length === 2) {
+    return blackPieces.some(
+      (p: Piece) => p.type === "bishop" || p.type === "knight",
+    );
+  }
+  if (whitePieces.length === 2 && blackPieces.length === 1) {
+    return whitePieces.some(
+      (p: Piece) => p.type === "bishop" || p.type === "knight",
+    );
+  }
+
+  return false;
+}
+
 /** 检查是否和棋（材料不足，检查所有活跃时间线） */
 export function isDraw(gameState: GameState): boolean {
   for (const [, timeline] of gameState.timelines) {
@@ -163,28 +186,7 @@ export function isDraw(gameState: GameState): boolean {
     const board = timeline.boards.get(latestTurn);
     if (!board) continue;
 
-    const whitePieces = getPiecesByColor(board, "white");
-    const blackPieces = getPiecesByColor(board, "black");
-
-    // 只有当所有活跃时间线都材料不足时才算和棋
-    const hasEnoughMaterial = (() => {
-      // K vs K
-      if (whitePieces.length === 1 && blackPieces.length === 1) return false;
-      // K+B vs K 或 K+N vs K
-      if (whitePieces.length === 1 && blackPieces.length === 2) {
-        return !blackPieces.some(
-          (p: Piece) => p.type === "bishop" || p.type === "knight",
-        );
-      }
-      if (whitePieces.length === 2 && blackPieces.length === 1) {
-        return !whitePieces.some(
-          (p: Piece) => p.type === "bishop" || p.type === "knight",
-        );
-      }
-      return true;
-    })();
-
-    if (hasEnoughMaterial) return false;
+    if (!hasInsufficientMaterial(board)) return false;
   }
 
   return true;

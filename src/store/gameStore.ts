@@ -341,7 +341,7 @@ function executeTimeTravelMove(
   const targetBoard = targetTimeline.boards.get(to.turn);
   if (!targetBoard) return;
 
-  const capturedPiece = getPieceAt(targetBoard, to.x, to.y) ?? undefined;
+  const capturedPiece = getPieceAt(targetBoard, to.x, to.y) || undefined;
 
   const move: Move = {
     id: `move-${Date.now()}`,

@@ -29,10 +29,10 @@ export function willCreateTimeline(
 ): boolean {
   const tl = timelines.get(targetTimeline);
   if (!tl) return true;
-  // 向过去移动到已存在棋盘的回合 -> 创建分支
-  // 移动到不存在的回合 -> 也创建分支
+  // 向已经存在的回合移动总是会创建新的分支时间线
   const latestTurn = getLatestTurn(tl);
   if (targetTurn <= latestTurn) return true;
+  // 向未来不存在的回合移动也创建分支
   return !tl.boards.has(targetTurn);
 }
 

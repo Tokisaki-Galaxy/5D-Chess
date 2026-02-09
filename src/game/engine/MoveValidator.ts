@@ -305,12 +305,15 @@ function isValidTimeTravelPawn(
   dl: number,
   targetBoard: Board,
 ): boolean {
+  const toX = piece.position.x + dx;
+  const toY = piece.position.y + dy;
+
   // 兵只能沿时间线轴移动1步，不改变空间坐标
   if (dx === 0 && dy === 0) {
     const timeStep = Math.abs(dt) + Math.abs(dl);
     if (timeStep !== 1) return false;
     // 不能移动到有棋子的位置
-    const target = getPieceAt(targetBoard, piece.position.x, piece.position.y);
+    const target = getPieceAt(targetBoard, toX, toY);
     return !target;
   }
 
@@ -318,7 +321,7 @@ function isValidTimeTravelPawn(
   if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1) {
     const timeStep = Math.abs(dt) + Math.abs(dl);
     if (timeStep !== 1) return false;
-    const target = getPieceAt(targetBoard, piece.position.x + dx, piece.position.y + dy);
+    const target = getPieceAt(targetBoard, toX, toY);
     return !!target && target.color !== piece.color;
   }
 
