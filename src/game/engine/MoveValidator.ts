@@ -3,10 +3,10 @@ import type { Position5D } from "../../types/game.types";
 import type { Board } from "../../types/timeline.types";
 import type { GameState } from "./GameState";
 import { getPieceAt } from "./GameState";
+import { isKingInCheck, isKingInCheckAfterMove } from "./WinCondition";
 
 /**
  * 移动验证器 - 检查棋子移动是否合法
- * Week 3-4 将完善完整的移动规则
  */
 
 /** 检查坐标是否在棋盘范围内 */
@@ -42,7 +42,11 @@ export function isValidSpatialMove(
     case "queen":
       return isValidRookMove(from, to, board) || isValidBishopMove(from, to, board);
     case "king":
-      return Math.abs(dx) <= 1 && Math.abs(dy) <= 1 && (dx !== 0 || dy !== 0);
+      if (Math.abs(dx) <= 1 && Math.abs(dy) <= 1 && (dx !== 0 || dy !== 0))
+        return true;
+      if (dy === 0 && Math.abs(dx) === 2)
+        return isValidCastling(piece, to, board);
+      return false;
     default:
       return false;
   }
@@ -72,8 +76,68 @@ function isValidPawnMove(
     return true;
   // 斜吃
   if (Math.abs(dx) === 1 && dy === direction && targetPiece) return true;
+  // 吃过路兵
+  if (Math.abs(dx) === 1 && dy === direction && !targetPiece) {
+    return isValidEnPassant(piece, to, board);
+  }
 
   return false;
+}
+
+/** 检查吃过路兵是否合法 */
+function isValidEnPassant(
+  piece: Piece,
+  to: Position5D,
+  board: Board,
+): boolean {
+  if (!board.lastMove) return false;
+  const last = board.lastMove;
+  if (last.piece.type !== "pawn") return false;
+  if (Math.abs(last.to.y - last.from.y) !== 2) return false;
+  if (last.to.x !== to.x) return false;
+  if (last.to.y !== piece.position.y) return false;
+  return true;
+}
+
+/** 检查王车易位是否合法 */
+function isValidCastling(
+  piece: Piece,
+  to: Position5D,
+  board: Board,
+): boolean {
+  if (piece.hasMoved) return false;
+  if (isKingInCheck(piece.color, board)) return false;
+
+  const direction = to.x > piece.position.x ? 1 : -1;
+  const rookX = direction === 1 ? 7 : 0;
+  const rook = getPieceAt(board, rookX, piece.position.y);
+  if (!rook || rook.type !== "rook" || rook.color !== piece.color || rook.hasMoved)
+    return false;
+
+  // 检查路径是否畅通
+  let cx = piece.position.x + direction;
+  while (cx !== rookX) {
+    if (getPieceAt(board, cx, piece.position.y)) return false;
+    cx += direction;
+  }
+
+  // 检查国王经过的格子是否被攻击
+  const midPos = { ...piece.position, x: piece.position.x + direction };
+  if (
+    isKingInCheckAfterMove(piece, { x: midPos.x, y: midPos.y }, board)
+  )
+    return false;
+
+  return true;
+}
+
+/** 检测是否为升变移动 */
+export function isPromotionMove(piece: Piece, toY: number): boolean {
+  if (piece.type !== "pawn") return false;
+  return (
+    (piece.color === "white" && toY === 7) ||
+    (piece.color === "black" && toY === 0)
+  );
 }
 
 function isValidRookMove(from: Position5D, to: Position5D, board: Board): boolean {
@@ -122,7 +186,7 @@ export function isValidTimeTravel(
   return false;
 }
 
-/** 获取棋子所有合法移动位置 */
+/** 获取棋子所有合法移动位置（含将军过滤） */
 export function getLegalMoves(piece: Piece, board: Board): Position5D[] {
   const moves: Position5D[] = [];
   for (let x = 0; x < 8; x++) {
@@ -134,7 +198,9 @@ export function getLegalMoves(piece: Piece, board: Board): Position5D[] {
         turn: piece.position.turn,
       };
       if (isValidSpatialMove(piece, to, board)) {
-        moves.push(to);
+        if (!isKingInCheckAfterMove(piece, { x, y }, board)) {
+          moves.push(to);
+        }
       }
     }
   }

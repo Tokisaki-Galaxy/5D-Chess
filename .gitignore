@@ -26,7 +26,6 @@ Thumbs.db
 coverage/
 test-results/
 playwright-report/
-screenshots/
 
 # Temp
 *.tsbuildinfo

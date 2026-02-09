@@ -1,10 +1,11 @@
-import type { Piece } from "./game.types";
+import type { Piece, Move } from "./game.types";
 
 /** 棋盘状态 */
 export interface Board {
   pieces: Piece[];
   turn: number;
   timeline: number;
+  lastMove?: Move;
 }
 
 /** 时间线 */

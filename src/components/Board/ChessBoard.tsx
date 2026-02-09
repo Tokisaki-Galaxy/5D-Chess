@@ -1,6 +1,15 @@
 import { useGameStore } from "../../store/gameStore";
 import { PIECE_SYMBOLS } from "../../game/engine/GameState";
-import type { Piece, Position5D } from "../../types/game.types";
+import { isKingInCheck } from "../../game/engine/WinCondition";
+import type { Piece, PieceType, Position5D } from "../../types/game.types";
+
+const PROMOTION_PIECES: PieceType[] = ["queen", "rook", "bishop", "knight"];
+const PROMOTION_LABELS: Record<string, string> = {
+  queen: "后",
+  rook: "车",
+  bishop: "象",
+  knight: "马",
+};
 
 export function ChessBoard() {
   const gameState = useGameStore((s) => s.gameState);
@@ -9,16 +18,35 @@ export function ChessBoard() {
   const selectPiece = useGameStore((s) => s.selectPiece);
   const movePiece = useGameStore((s) => s.movePiece);
   const clearSelection = useGameStore((s) => s.clearSelection);
+  const pendingPromotion = useGameStore((s) => s.pendingPromotion);
+  const promotePawn = useGameStore((s) => s.promotePawn);
+  const gameMessage = useGameStore((s) => s.gameMessage);
+  const resetGame = useGameStore((s) => s.resetGame);
 
   const timeline = gameState.timelines.get(gameState.currentTimeline);
   const board = timeline?.boards.get(gameState.currentTurn);
 
   if (!board) return <div>棋盘加载失败</div>;
 
+  // 检查当前玩家是否被将军
+  const currentInCheck =
+    gameState.gameStatus === "playing" &&
+    isKingInCheck(gameState.currentPlayer, board);
+
+  const checkedKing = currentInCheck
+    ? board.pieces.find(
+        (p: Piece) =>
+          p.type === "king" && p.color === gameState.currentPlayer,
+      )
+    : null;
+
   const isLegalTarget = (x: number, y: number) =>
     legalMoves.some((m) => m.x === x && m.y === y);
 
   const handleSquareClick = (x: number, y: number) => {
+    if (pendingPromotion) return;
+    if (gameState.gameStatus !== "playing") return;
+
     if (selectedPiece && isLegalTarget(x, y)) {
       const to: Position5D = {
         x,
@@ -52,11 +80,14 @@ export function ChessBoard() {
         selectedPiece?.position.x === x && selectedPiece?.position.y === y;
       const isLegal = isLegalTarget(x, y);
       const hasPiece = !!piece;
+      const isCheckedKing =
+        checkedKing?.position.x === x && checkedKing?.position.y === y;
 
       let bgColor = isLight
         ? "bg-[var(--board-light)]"
         : "bg-[var(--board-dark)]";
       if (isSelected) bgColor = "bg-[var(--board-highlight)]";
+      if (isCheckedKing) bgColor = "bg-red-600/70";
 
       cells.push(
         <div
@@ -95,8 +126,10 @@ export function ChessBoard() {
     );
   }
 
+  const isGameOver = gameState.gameStatus !== "playing";
+
   return (
-    <div data-testid="chess-board" className="inline-block">
+    <div data-testid="chess-board" className="inline-block relative">
       <div className="border-2 border-slate-600 rounded-lg overflow-hidden shadow-2xl">
         {rows}
         {/* 列标 */}
@@ -111,6 +144,17 @@ export function ChessBoard() {
           ))}
         </div>
       </div>
+
+      {/* 游戏消息 */}
+      {gameMessage && !isGameOver && (
+        <div
+          className="mt-2 text-center text-yellow-400 font-bold text-lg animate-pulse"
+          data-testid="game-message"
+        >
+          {gameMessage}
+        </div>
+      )}
+
       {/* 当前回合指示 */}
       <div className="mt-3 text-center" data-testid="turn-indicator">
         <span
@@ -124,6 +168,66 @@ export function ChessBoard() {
           {gameState.currentTurn}
         </span>
       </div>
+
+      {/* 升变选择 */}
+      {pendingPromotion && (
+        <div
+          className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-lg z-10"
+          data-testid="promotion-dialog"
+        >
+          <div className="bg-slate-800 border border-slate-600 rounded-xl p-6 shadow-2xl">
+            <p className="text-center text-slate-200 mb-4 font-medium">
+              选择升变棋子
+            </p>
+            <div className="flex gap-3">
+              {PROMOTION_PIECES.map((pt) => (
+                <button
+                  key={pt}
+                  className="flex flex-col items-center gap-1 px-4 py-3 rounded-lg bg-slate-700 hover:bg-blue-600 transition-colors"
+                  onClick={() => promotePawn(pt)}
+                  data-testid={`promote-${pt}`}
+                >
+                  <span className="text-3xl">
+                    {PIECE_SYMBOLS[pt][pendingPromotion.piece.color]}
+                  </span>
+                  <span className="text-xs text-slate-300">
+                    {PROMOTION_LABELS[pt]}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 游戏结束覆盖层 */}
+      {isGameOver && (
+        <div
+          className="absolute inset-0 flex items-center justify-center bg-black/70 rounded-lg z-10"
+          data-testid="game-over-overlay"
+        >
+          <div className="bg-slate-800 border border-slate-600 rounded-xl p-8 shadow-2xl text-center">
+            <p className="text-2xl font-bold text-yellow-400 mb-2">
+              {gameState.gameStatus === "checkmate" && "将死！"}
+              {gameState.gameStatus === "stalemate" && "僵局！"}
+              {gameState.gameStatus === "draw" && "和棋！"}
+            </p>
+            <p className="text-slate-300 mb-6">
+              {gameState.gameStatus === "checkmate" &&
+                `${gameState.winner === "white" ? "白方" : "黑方"}获胜`}
+              {gameState.gameStatus === "stalemate" && "双方无合法移动"}
+              {gameState.gameStatus === "draw" && "材料不足"}
+            </p>
+            <button
+              className="px-6 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 transition-colors font-medium"
+              onClick={resetGame}
+              data-testid="game-over-reset"
+            >
+              重新开始
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
