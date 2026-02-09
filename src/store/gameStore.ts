@@ -7,7 +7,7 @@ import type {
   Move,
   Piece,
 } from "../types/game.types";
-import type { Board } from "../types/timeline.types";
+import type { Board, Timeline } from "../types/timeline.types";
 import {
   createInitialGameState,
   getPieceAt,
@@ -168,7 +168,7 @@ function executeMove(
   piece: Piece,
   to: Position5D,
   board: Board,
-  timeline: { id: number; boards: Map<number, Board>; parentTimeline: number | null; branchTurn: number; isActive: boolean },
+  timeline: Timeline,
   gameState: GameState,
   set: (state: Partial<GameStore>) => void,
   get: () => GameStore,

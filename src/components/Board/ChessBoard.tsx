@@ -188,11 +188,7 @@ export function ChessBoard() {
                   data-testid={`promote-${pt}`}
                 >
                   <span className="text-3xl">
-                    {
-                      PIECE_SYMBOLS[pt][
-                        pendingPromotion.piece.color
-                      ]
-                    }
+                    {PIECE_SYMBOLS[pt][pendingPromotion.piece.color]}
                   </span>
                   <span className="text-xs text-slate-300">
                     {PROMOTION_LABELS[pt]}
