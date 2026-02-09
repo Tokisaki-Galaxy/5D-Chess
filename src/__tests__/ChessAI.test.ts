@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import type { PieceColor, PieceType, Piece } from "../types/game.types";
 import type { Board } from "../types/timeline.types";
 import type { GameState } from "../game/engine/GameState";
