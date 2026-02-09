@@ -37,6 +37,8 @@ export interface Move {
   capturedPiece?: Piece;
   createsTimeline?: number; // 是否创建新时间线
   timestamp: number;
+  isPromotion?: boolean;
+  promotionChoice?: PieceType;
 }
 
 /** 游戏状态枚举 */

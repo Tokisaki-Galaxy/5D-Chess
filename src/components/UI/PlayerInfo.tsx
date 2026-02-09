@@ -1,8 +1,16 @@
 import { useGameStore } from "../../store/gameStore";
 
+const STATUS_LABELS: Record<string, string> = {
+  playing: "进行中",
+  checkmate: "将死",
+  stalemate: "僵局",
+  draw: "和棋",
+};
+
 export function PlayerInfo() {
   const gameState = useGameStore((s) => s.gameState);
   const gameMode = useGameStore((s) => s.gameMode);
+  const gameMessage = useGameStore((s) => s.gameMessage);
 
   const modeLabels: Record<string, string> = {
     "local-pvp": "本地双人",
@@ -47,11 +55,25 @@ export function PlayerInfo() {
         <div className="px-3 py-2 rounded-lg bg-slate-700/50">
           <span className="text-xs text-slate-400">状态</span>
           <p className="font-medium">
-            {gameState.gameStatus === "playing"
-              ? "进行中"
-              : gameState.gameStatus}
+            {STATUS_LABELS[gameState.gameStatus] ?? gameState.gameStatus}
           </p>
+          {gameState.gameStatus === "checkmate" && gameState.winner && (
+            <p className="text-xs text-yellow-400 mt-1">
+              {gameState.winner === "white" ? "白方" : "黑方"}获胜
+            </p>
+          )}
         </div>
+
+        {/* 游戏消息 */}
+        {gameMessage && (
+          <div
+            className="px-3 py-2 rounded-lg bg-yellow-900/30 border border-yellow-600/50"
+            data-testid="game-status-message"
+          >
+            <span className="text-xs text-yellow-400">提示</span>
+            <p className="font-medium text-yellow-300">{gameMessage}</p>
+          </div>
+        )}
 
         {/* 时间线数 */}
         <div className="px-3 py-2 rounded-lg bg-slate-700/50">

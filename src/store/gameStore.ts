@@ -1,12 +1,26 @@
 import { create } from "zustand";
-import type { PieceColor, GameMode, AIDifficulty, Move, Piece } from "../types/game.types";
+import type {
+  PieceColor,
+  PieceType,
+  GameMode,
+  AIDifficulty,
+  Move,
+  Piece,
+} from "../types/game.types";
 import type { Board } from "../types/timeline.types";
 import {
   createInitialGameState,
   getPieceAt,
   type GameState,
 } from "../game/engine/GameState";
-import { getLegalMoves } from "../game/engine/MoveValidator";
+import { getLegalMoves, isPromotionMove } from "../game/engine/MoveValidator";
+import {
+  isKingInCheck,
+  isCheckmate,
+  isStalemate,
+  isDraw,
+} from "../game/engine/WinCondition";
+import { getAIMove } from "../game/ai/ChessAI";
 import type { Position5D } from "../types/game.types";
 
 interface GameStore {
@@ -18,11 +32,15 @@ interface GameStore {
   // 交互状态
   selectedPiece: Piece | null;
   legalMoves: Position5D[];
+  pendingPromotion: { piece: Piece; to: Position5D } | null;
+  gameMessage: string;
 
   // 动作
   startGame: (mode: GameMode, difficulty?: AIDifficulty) => void;
   selectPiece: (x: number, y: number) => void;
   movePiece: (to: Position5D) => void;
+  promotePawn: (choice: PieceType) => void;
+  makeAIMove: () => void;
   clearSelection: () => void;
   resetGame: () => void;
 }
@@ -33,6 +51,8 @@ export const useGameStore = create<GameStore>((set, get) => ({
   aiDifficulty: "easy",
   selectedPiece: null,
   legalMoves: [],
+  pendingPromotion: null,
+  gameMessage: "",
 
   startGame: (mode, difficulty) => {
     set({
@@ -41,11 +61,16 @@ export const useGameStore = create<GameStore>((set, get) => ({
       aiDifficulty: difficulty ?? "easy",
       selectedPiece: null,
       legalMoves: [],
+      pendingPromotion: null,
+      gameMessage: "",
     });
   },
 
   selectPiece: (x, y) => {
-    const { gameState } = get();
+    const { gameState, pendingPromotion } = get();
+    if (pendingPromotion) return;
+    if (gameState.gameStatus !== "playing") return;
+
     const timeline = gameState.timelines.get(gameState.currentTimeline);
     if (!timeline) return;
     const board = timeline.boards.get(gameState.currentTurn);
@@ -64,55 +89,63 @@ export const useGameStore = create<GameStore>((set, get) => ({
   movePiece: (to) => {
     const { gameState, selectedPiece } = get();
     if (!selectedPiece) return;
+    if (gameState.gameStatus !== "playing") return;
 
     const timeline = gameState.timelines.get(gameState.currentTimeline);
     if (!timeline) return;
     const board = timeline.boards.get(gameState.currentTurn);
     if (!board) return;
 
-    // 执行移动
-    const capturedPiece = getPieceAt(board, to.x, to.y);
-    const move: Move = {
-      id: `move-${Date.now()}`,
-      piece: selectedPiece,
-      from: selectedPiece.position,
-      to,
-      capturedPiece: capturedPiece ?? undefined,
-      timestamp: Date.now(),
-    };
-
-    // 更新棋盘
-    const newPieces = board.pieces
-      .filter((p: Piece) => p.id !== selectedPiece.id && p.id !== capturedPiece?.id)
-      .concat({
-        ...selectedPiece,
-        position: to,
-        hasMoved: true,
+    // 检查是否为升变
+    if (isPromotionMove(selectedPiece, to.y)) {
+      set({
+        pendingPromotion: { piece: selectedPiece, to },
+        selectedPiece: null,
+        legalMoves: [],
       });
+      return;
+    }
 
-    const newBoard: Board = { ...board, pieces: newPieces };
-    const newTimeline = {
-      ...timeline,
-      boards: new Map(timeline.boards).set(gameState.currentTurn, newBoard),
-    };
-    const nextPlayer: PieceColor =
-      gameState.currentPlayer === "white" ? "black" : "white";
+    executeMove(selectedPiece, to, board, timeline, gameState, set, get);
+  },
 
-    const newTimelines = new Map(gameState.timelines).set(
-      gameState.currentTimeline,
-      newTimeline,
+  promotePawn: (choice) => {
+    const { pendingPromotion, gameState } = get();
+    if (!pendingPromotion) return;
+
+    const timeline = gameState.timelines.get(gameState.currentTimeline);
+    if (!timeline) return;
+    const board = timeline.boards.get(gameState.currentTurn);
+    if (!board) return;
+
+    const { piece, to } = pendingPromotion;
+    set({ pendingPromotion: null });
+    executeMove(piece, to, board, timeline, gameState, set, get, choice);
+  },
+
+  makeAIMove: () => {
+    const { gameState, aiDifficulty, gameMode } = get();
+    if (gameState.gameStatus !== "playing") return;
+    if (gameMode !== "local-ai") return;
+
+    const aiMove = getAIMove(gameState, aiDifficulty);
+    if (!aiMove) return;
+
+    const timeline = gameState.timelines.get(gameState.currentTimeline);
+    if (!timeline) return;
+    const board = timeline.boards.get(gameState.currentTurn);
+    if (!board) return;
+
+    executeMove(
+      aiMove.piece,
+      aiMove.to,
+      board,
+      timeline,
+      gameState,
+      set,
+      get,
+      aiMove.promotionChoice,
     );
-
-    set({
-      gameState: {
-        ...gameState,
-        timelines: newTimelines,
-        currentPlayer: nextPlayer,
-        moveHistory: [...gameState.moveHistory, move],
-      },
-      selectedPiece: null,
-      legalMoves: [],
-    });
   },
 
   clearSelection: () => {
@@ -124,6 +157,136 @@ export const useGameStore = create<GameStore>((set, get) => ({
       gameState: createInitialGameState(),
       selectedPiece: null,
       legalMoves: [],
+      pendingPromotion: null,
+      gameMessage: "",
     });
   },
 }));
+
+/** 执行移动的通用逻辑 */
+function executeMove(
+  piece: Piece,
+  to: Position5D,
+  board: Board,
+  timeline: { id: number; boards: Map<number, Board>; parentTimeline: number | null; branchTurn: number; isActive: boolean },
+  gameState: GameState,
+  set: (state: Partial<GameStore>) => void,
+  get: () => GameStore,
+  promotionChoice?: PieceType,
+) {
+  let capturedPiece = getPieceAt(board, to.x, to.y) ?? undefined;
+
+  // 吃过路兵
+  let enPassantCaptureId: string | undefined;
+  if (
+    piece.type === "pawn" &&
+    Math.abs(to.x - piece.position.x) === 1 &&
+    !capturedPiece
+  ) {
+    const epPawn = getPieceAt(board, to.x, piece.position.y);
+    if (epPawn && epPawn.color !== piece.color) {
+      capturedPiece = epPawn;
+      enPassantCaptureId = epPawn.id;
+    }
+  }
+
+  const move: Move = {
+    id: `move-${Date.now()}`,
+    piece,
+    from: piece.position,
+    to,
+    capturedPiece,
+    timestamp: Date.now(),
+    isPromotion: !!promotionChoice || undefined,
+    promotionChoice,
+  };
+
+  // 更新棋盘
+  let newPieces = board.pieces
+    .filter(
+      (p: Piece) =>
+        p.id !== piece.id &&
+        p.id !== capturedPiece?.id &&
+        p.id !== enPassantCaptureId,
+    )
+    .concat({
+      ...piece,
+      type: promotionChoice ?? piece.type,
+      position: to,
+      hasMoved: true,
+    });
+
+  // 王车易位：移动车
+  if (piece.type === "king" && Math.abs(to.x - piece.position.x) === 2) {
+    const rookFromX = to.x > piece.position.x ? 7 : 0;
+    const rookToX = to.x > piece.position.x ? to.x - 1 : to.x + 1;
+    newPieces = newPieces.map((p: Piece) =>
+      p.position.x === rookFromX &&
+      p.position.y === piece.position.y &&
+      p.type === "rook" &&
+      p.color === piece.color
+        ? { ...p, position: { ...p.position, x: rookToX }, hasMoved: true }
+        : p,
+    );
+  }
+
+  const newBoard: Board = { ...board, pieces: newPieces, lastMove: move };
+  const newTimeline = {
+    ...timeline,
+    boards: new Map(timeline.boards).set(gameState.currentTurn, newBoard),
+  };
+  const nextPlayer: PieceColor =
+    gameState.currentPlayer === "white" ? "black" : "white";
+
+  const newTimelines = new Map(gameState.timelines).set(
+    gameState.currentTimeline,
+    newTimeline,
+  );
+
+  // 检测游戏状态
+  const newGameState: GameState = {
+    ...gameState,
+    timelines: newTimelines,
+    currentPlayer: nextPlayer,
+    moveHistory: [...gameState.moveHistory, move],
+  };
+
+  let gameMessage = "";
+  let gameStatus = gameState.gameStatus;
+  let winner = gameState.winner;
+
+  if (isCheckmate(nextPlayer, newGameState)) {
+    gameStatus = "checkmate";
+    winner = gameState.currentPlayer;
+    gameMessage = `将死！${winner === "white" ? "白方" : "黑方"}获胜！`;
+  } else if (isStalemate(newGameState)) {
+    gameStatus = "stalemate";
+    gameMessage = "和棋！（僵局）";
+  } else if (isDraw(newGameState)) {
+    gameStatus = "draw";
+    gameMessage = "和棋！（材料不足）";
+  } else if (isKingInCheck(nextPlayer, newBoard)) {
+    gameMessage = "将军！";
+  }
+
+  newGameState.gameStatus = gameStatus;
+  newGameState.winner = winner;
+
+  set({
+    gameState: newGameState,
+    selectedPiece: null,
+    legalMoves: [],
+    gameMessage,
+  });
+
+  // AI自动走棋
+  if (
+    get().gameMode === "local-ai" &&
+    nextPlayer === "black" &&
+    gameStatus === "playing"
+  ) {
+    setTimeout(() => {
+      get().makeAIMove();
+    }, 400);
+  }
+}
